@@ -13,9 +13,23 @@ import java.util.UUID;
 @Repository
 public interface MessageRepository extends JpaRepository<Message, UUID> {
     
-    List<Message> findBySessionIdOrderByCreatedAtAsc(String sessionId);
     
     @Query("SELECT m FROM Message m WHERE m.sessionId = :sessionId ORDER BY m.createdAt DESC")
     List<Message> findLastMessagesBySessionId(@Param("sessionId") String sessionId, Pageable pageable);
+    
+    @Query("SELECT DISTINCT m.sessionId FROM Message m WHERE m.userId = :userId")
+    List<String> findDistinctSessionIdsByUserId(@Param("userId") String userId);
+    
+    @Query("SELECT COUNT(DISTINCT m.sessionId) FROM Message m WHERE m.userId = :userId")
+    long countDistinctSessionIdsByUserId(@Param("userId") String userId);
+    
+    @Query("SELECT m FROM Message m WHERE m.userId = :userId AND m.sessionId = :sessionId ORDER BY m.createdAt DESC")
+    List<Message> findMessagesByUserIdAndSessionIdOrderByCreatedAtDesc(@Param("userId") String userId, @Param("sessionId") String sessionId, Pageable pageable);
+    
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.userId = :userId AND m.sessionId = :sessionId")
+    long countMessagesByUserIdAndSessionId(@Param("userId") String userId, @Param("sessionId") String sessionId);
+    
+    @Query("SELECT m FROM Message m WHERE m.sessionId = :sessionId ORDER BY m.createdAt ASC")
+    List<Message> findMessagesBySessionIdOrderByCreatedAtAsc(@Param("sessionId") String sessionId);
 }
 

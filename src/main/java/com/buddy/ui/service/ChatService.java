@@ -3,11 +3,20 @@ package com.buddy.ui.service;
 import com.buddy.ui.model.Message;
 import com.buddy.ui.model.SenderType;
 import com.buddy.ui.model.dto.ChatRequest;
+import com.buddy.ui.model.dto.ConversationPageResponse;
+import com.buddy.ui.model.dto.ConversationSummaryDTO;
+import com.buddy.ui.model.dto.MessageResponseDTO;
 import com.buddy.ui.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +50,85 @@ public class ChatService {
         
         // Step 4: Return AI message (as per requirements)
         return aiMessage;
+    }
+    
+    @Transactional(readOnly = true)
+    public ConversationPageResponse getConversationsByUserId(String userId, int page, int size) {
+        log.info("Fetching conversations for user: {}, page: {}, size: {}", userId, page, size);
+        
+        // Get all distinct session IDs for the user
+        List<String> allSessionIds = messageRepository.findDistinctSessionIdsByUserId(userId);
+        
+        // Calculate pagination
+        int totalElements = allSessionIds.size();
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int start = page * size;
+        int end = Math.min(start + size, totalElements);
+        
+        // Get paginated session IDs
+        List<String> paginatedSessionIds = allSessionIds.subList(
+            Math.min(start, totalElements), 
+            Math.min(end, totalElements)
+        );
+        
+        // Build conversation summaries
+        List<ConversationSummaryDTO> conversations = paginatedSessionIds.stream()
+                .map(sessionId -> {
+                    // Get last message for this session
+                    Pageable lastMessagePageable = PageRequest.of(0, 1);
+                    List<Message> lastMessages = messageRepository.findMessagesByUserIdAndSessionIdOrderByCreatedAtDesc(
+                            userId, sessionId, lastMessagePageable);
+                    
+                    Message lastMessage = lastMessages.isEmpty() ? null : lastMessages.get(0);
+                    long messageCount = messageRepository.countMessagesByUserIdAndSessionId(userId, sessionId);
+                    
+                    return ConversationSummaryDTO.builder()
+                            .sessionId(sessionId)
+                            .lastMessage(lastMessage != null ? lastMessage.getContent() : "")
+                            .lastMessageTime(lastMessage != null ? lastMessage.getCreatedAt() : null)
+                            .messageCount(messageCount)
+                            .userId(userId)
+                            .build();
+                })
+                .sorted((c1, c2) -> {
+                    // Sort by last message time (most recent first)
+                    if (c1.getLastMessageTime() == null && c2.getLastMessageTime() == null) return 0;
+                    if (c1.getLastMessageTime() == null) return 1;
+                    if (c2.getLastMessageTime() == null) return -1;
+                    return c2.getLastMessageTime().compareTo(c1.getLastMessageTime());
+                })
+                .collect(Collectors.toList());
+        
+        return ConversationPageResponse.builder()
+                .conversations(conversations)
+                .currentPage(page)
+                .totalPages(totalPages)
+                .totalElements(totalElements)
+                .size(size)
+                .build();
+    }
+    
+    @Transactional(readOnly = true)
+    public List<MessageResponseDTO> getMessagesBySessionId(String sessionId) {
+        log.info("Fetching messages for session: {}", sessionId);
+        
+        List<Message> messages = messageRepository.findMessagesBySessionIdOrderByCreatedAtAsc(sessionId);
+        
+        return messages.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+    
+    private MessageResponseDTO convertToDTO(Message message) {
+        return MessageResponseDTO.builder()
+                .id(message.getId())
+                .sessionId(message.getSessionId())
+                .senderType(message.getSenderType())
+                .content(message.getContent())
+                .userId(message.getUserId())
+                .createdAt(message.getCreatedAt())
+                .metadata(message.getMetadata())
+                .build();
     }
 }
 
