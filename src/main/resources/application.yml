@@ -31,7 +31,7 @@ spring:
   
   ai:
     gemini:
-      api-key: AIzaSyCmALbtId0yMg67TCE8ONagQ-Zc-uhRlYU
+      api-key:
       chat:
         options:
           model: gemini-flash-latest
