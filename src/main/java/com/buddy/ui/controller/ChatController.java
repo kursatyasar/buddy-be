@@ -3,6 +3,7 @@ package com.buddy.ui.controller;
 import com.buddy.ui.model.Message;
 import com.buddy.ui.model.dto.ChatRequest;
 import com.buddy.ui.model.dto.ConversationPageResponse;
+import com.buddy.ui.model.dto.DeleteConversationRequest;
 import com.buddy.ui.model.dto.MessageResponseDTO;
 import com.buddy.ui.service.ChatService;
 import jakarta.validation.Valid;
@@ -52,6 +53,17 @@ public class ChatController {
         List<MessageResponseDTO> messages = chatService.getMessagesBySessionId(sessionId);
         
         return ResponseEntity.status(HttpStatus.OK).body(messages);
+    }
+    
+    @DeleteMapping("/conversations/{sessionId}")
+    public ResponseEntity<Void> deleteConversation(
+            @PathVariable String sessionId,
+            @Valid @RequestBody DeleteConversationRequest request) {
+        log.info("Deleting conversation for session: {}, user: {}", sessionId, request.getUserId());
+        
+        chatService.deleteConversation(sessionId, request.getUserId());
+        
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 }
 

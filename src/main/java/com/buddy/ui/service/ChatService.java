@@ -119,6 +119,23 @@ public class ChatService {
                 .collect(Collectors.toList());
     }
     
+    @Transactional
+    public void deleteConversation(String sessionId, String userId) {
+        log.info("Deleting conversation for session: {}, user: {}", sessionId, userId);
+        
+        // Check if conversation exists and belongs to user
+        long messageCount = messageRepository.countBySessionIdAndUserId(sessionId, userId);
+        
+        if (messageCount == 0) {
+            throw new RuntimeException("Conversation not found or does not belong to user");
+        }
+        
+        // Delete all messages in the conversation
+        messageRepository.deleteBySessionIdAndUserId(sessionId, userId);
+        
+        log.info("Successfully deleted {} messages for session: {}", messageCount, sessionId);
+    }
+    
     private MessageResponseDTO convertToDTO(Message message) {
         return MessageResponseDTO.builder()
                 .id(message.getId())
