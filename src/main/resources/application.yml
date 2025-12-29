@@ -30,13 +30,15 @@ spring:
         order_updates: true
   
   ai:
-    openai:
-      api-key: ${OPENAI_API_KEY:your-api-key-here}
+    gemini:
+      api-key:
       chat:
         options:
-          model: gpt-4o-mini
+          model: gemini-flash-latest
           temperature: 0.7
-          max-tokens: 1000
+          top-p: 0.95
+          top-k: 40
+          max-output-tokens: 1000
 
 server:
   port: 8080
@@ -47,6 +49,5 @@ server:
 logging:
   level:
     com.buddy: DEBUG
-    org.springframework.ai: DEBUG
     org.hibernate.SQL: DEBUG
 
