@@ -33,8 +33,28 @@ services:
     networks:
       - buddy-network
 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: buddy-chromadb
+    ports:
+      - "8000:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - chromadb_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - buddy-network
+
 volumes:
   postgres_data:
+    driver: local
+  chromadb_data:
     driver: local
 
 networks:

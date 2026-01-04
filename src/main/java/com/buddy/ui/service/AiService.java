@@ -1,5 +1,6 @@
 package com.buddy.ui.service;
 
+import com.buddy.ui.config.AiConfig;
 import com.buddy.ui.model.Message;
 import com.buddy.ui.model.dto.ChatMessage;
 import com.buddy.ui.repository.MessageRepository;
@@ -31,6 +32,7 @@ public class AiService {
     private final MessageRepository messageRepository;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ChromaDbService chromaDbService;
     
     @Value("${spring.ai.custom-llm.base-url}")
     private String baseUrl;
@@ -70,12 +72,15 @@ public class AiService {
     public Message generateResponse(String sessionId, String userMessage) {
         log.debug("Generating AI response for session: {}", sessionId);
         
+        // RAG: Search for relevant context from ChromaDB
+        String ragContext = retrieveRelevantContext(userMessage);
+        
         // Fetch conversation history for context
         Pageable pageable = PageRequest.of(0, CONTEXT_WINDOW_SIZE);
         List<Message> recentMessages = messageRepository.findLastMessagesBySessionId(sessionId, pageable);
         
-        // Build messages list (system, user, assistant format)
-        List<ChatMessage> messages = buildMessagesList(recentMessages, userMessage);
+        // Build messages list with RAG context (system, user, assistant format)
+        List<ChatMessage> messages = buildMessagesListWithRAG(recentMessages, userMessage, ragContext);
         
         // Generate AI response using OpenAI-compatible API
         String aiResponse = callCustomLlmApi(messages);
@@ -93,13 +98,49 @@ public class AiService {
         return aiMessage;
     }
     
+    /**
+     * Retrieve relevant context from ChromaDB using RAG
+     */
+    private String retrieveRelevantContext(String query) {
+        try {
+            List<Map<String, Object>> results = chromaDbService.searchSimilar(query);
+            
+            if (results.isEmpty()) {
+                return "";
+            }
+            
+            StringBuilder context = new StringBuilder("Bilgi Tabanından İlgili Bilgiler:\n\n");
+            for (int i = 0; i < results.size(); i++) {
+                Map<String, Object> result = results.get(i);
+                String text = (String) result.get("text");
+                if (text != null && !text.isEmpty()) {
+                    context.append(String.format("%d. %s\n", i + 1, text));
+                }
+            }
+            
+            return context.toString();
+        } catch (Exception e) {
+            log.error("Error retrieving RAG context", e);
+            return "";
+        }
+    }
+    
     private List<ChatMessage> buildMessagesList(List<Message> recentMessages, String userMessage) {
+        return buildMessagesListWithRAG(recentMessages, userMessage, "");
+    }
+    
+    private List<ChatMessage> buildMessagesListWithRAG(List<Message> recentMessages, String userMessage, String ragContext) {
         List<ChatMessage> messages = new ArrayList<>();
         
-        // Add system message
+        // Add system message with persona and RAG context
+        String systemMessage = AiConfig.SYSTEM_PROMPT;
+        if (!ragContext.isEmpty()) {
+            systemMessage += "\n\n### MEVCUT BAĞLAM (RAG)\n" + ragContext;
+            systemMessage += "\n\nÖNEMLİ: Yukarıdaki bağlamdan gelen bilgileri kullanarak soruları cevapla. Eğer bağlamda bilgi yoksa, kullanıcıyı ilgili ekibe yönlendir.";
+        }
         messages.add(ChatMessage.builder()
                 .role("system")
-                .content("You are a helpful assistant")
+                .content(systemMessage)
                 .build());
         
         // Add conversation history (chronological order)

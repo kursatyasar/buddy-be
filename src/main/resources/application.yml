@@ -42,6 +42,18 @@ spring:
       frequency-penalty: 0.5
       presence-penalty: 0.3
       seed: -1
+    custom-embedding:
+      model: ${CUSTOM_EMBEDDING_MODEL:practicus/gemma-300m-hackathon}
+  
+  chromadb:
+    base-url: ${CHROMADB_BASE_URL:http://localhost:8000}
+    collection-name: ${CHROMADB_COLLECTION:buddy-knowledge-base}
+    embedding-dimension: ${CHROMADB_EMBEDDING_DIMENSION:384}
+    top-k: ${CHROMADB_TOP_K:5}
+  
+  rag:
+    chunk-size: ${RAG_CHUNK_SIZE:500}
+    chunk-overlap: ${RAG_CHUNK_OVERLAP:50}
 
 server:
   port: 8080
