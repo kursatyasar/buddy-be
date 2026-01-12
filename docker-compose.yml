@@ -34,7 +34,7 @@ services:
       - buddy-network
 
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.4.24
     container_name: buddy-chromadb
     ports:
       - "8000:8000"

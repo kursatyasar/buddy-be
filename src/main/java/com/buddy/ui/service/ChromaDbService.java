@@ -28,52 +28,128 @@ public class ChromaDbService {
     @Value("${spring.chromadb.top-k:5}")
     private int topK;
     
+    private String collectionId = null;
+    
     /**
-     * Initialize or get collection
+     * Initialize or get collection and return its ID
+     * Using ChromaDB v1 API (more stable and widely supported)
      */
-    public void ensureCollection() {
+    public String ensureCollection() {
         try {
-            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections";
+            if (collectionId != null) {
+                return collectionId;
+            }
             
+            String baseUrl = chromaDbConfig.getBaseUrl();
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             
-            // Check if collection exists
-            Map<String, Object> getRequest = new HashMap<>();
-            getRequest.put("name", chromaDbConfig.getCollectionName());
+            String collectionName = chromaDbConfig.getCollectionName();
             
-            HttpEntity<Map<String, Object>> getEntity = new HttpEntity<>(getRequest, headers);
-            ResponseEntity<String> getResponse = restTemplate.exchange(
-                    url, HttpMethod.GET, getEntity, String.class);
+            // Try to get collection by name using v1 API
+            String getUrl = baseUrl + "/api/v1/collections/" + collectionName;
+            HttpEntity<Void> getEntity = new HttpEntity<>(headers);
             
-            JsonNode collections = objectMapper.readTree(getResponse.getBody());
-            boolean exists = false;
-            
-            if (collections.isArray()) {
-                for (JsonNode collection : collections) {
-                    if (collection.has("name") && 
-                        collection.get("name").asText().equals(chromaDbConfig.getCollectionName())) {
-                        exists = true;
-                        break;
+            try {
+                ResponseEntity<String> getResponse = restTemplate.exchange(
+                        getUrl, HttpMethod.GET, getEntity, String.class);
+                
+                if (getResponse.getStatusCode().is2xxSuccessful()) {
+                    JsonNode collection = objectMapper.readTree(getResponse.getBody());
+                    if (collection.has("id")) {
+                        collectionId = collection.get("id").asText();
+                        log.info("Found existing ChromaDB collection: {} (ID: {})", 
+                                collectionName, collectionId);
+                        return collectionId;
+                    } else if (collection.has("collection")) {
+                        JsonNode coll = collection.get("collection");
+                        if (coll.has("id")) {
+                            collectionId = coll.get("id").asText();
+                            log.info("Found existing ChromaDB collection: {} (ID: {})", 
+                                    collectionName, collectionId);
+                            return collectionId;
+                        }
                     }
                 }
+            } catch (Exception e) {
+                log.debug("Collection not found by name, will try to create: {}", e.getMessage());
             }
             
-            if (!exists) {
-                // Create collection
-                Map<String, Object> createRequest = new HashMap<>();
-                createRequest.put("name", chromaDbConfig.getCollectionName());
-                createRequest.put("metadata", new HashMap<>());
+            // Collection doesn't exist, try to create it using v1 API
+            String createUrl = baseUrl + "/api/v1/collections";
+            Map<String, Object> createRequest = new HashMap<>();
+            createRequest.put("name", collectionName);
+            // Don't include metadata if empty - ChromaDB 0.4.24 requires non-empty metadata or no metadata at all
+            // createRequest.put("metadata", new HashMap<>()); // Removed - causes error in ChromaDB 0.4.24
+            
+            HttpEntity<Map<String, Object>> createEntity = new HttpEntity<>(createRequest, headers);
+            
+            try {
+                // Try POST first
+                ResponseEntity<String> createResponse = restTemplate.exchange(
+                        createUrl, HttpMethod.POST, createEntity, String.class);
                 
-                HttpEntity<Map<String, Object>> createEntity = new HttpEntity<>(createRequest, headers);
-                restTemplate.exchange(url, HttpMethod.POST, createEntity, String.class);
-                log.info("Created ChromaDB collection: {}", chromaDbConfig.getCollectionName());
-            } else {
-                log.info("ChromaDB collection already exists: {}", chromaDbConfig.getCollectionName());
+                if (createResponse.getStatusCode().is2xxSuccessful()) {
+                    JsonNode createdCollection = objectMapper.readTree(createResponse.getBody());
+                    if (createdCollection.has("id")) {
+                        collectionId = createdCollection.get("id").asText();
+                    } else if (createdCollection.has("collection")) {
+                        JsonNode collection = createdCollection.get("collection");
+                        if (collection.has("id")) {
+                            collectionId = collection.get("id").asText();
+                        }
+                    }
+                    
+                    if (collectionId != null) {
+                        log.info("Created ChromaDB collection: {} (ID: {})", 
+                                collectionName, collectionId);
+                        return collectionId;
+                    } else {
+                        // If ID not in response, try to get it by name
+                        log.debug("Collection created but ID not in response, trying to get by name");
+                        ResponseEntity<String> getAfterCreate = restTemplate.exchange(
+                                getUrl, HttpMethod.GET, getEntity, String.class);
+                        if (getAfterCreate.getStatusCode().is2xxSuccessful()) {
+                            JsonNode coll = objectMapper.readTree(getAfterCreate.getBody());
+                            if (coll.has("id")) {
+                                collectionId = coll.get("id").asText();
+                                return collectionId;
+                            }
+                        }
+                        throw new RuntimeException("Collection created but ID not found in response");
+                    }
+                } else {
+                    throw new RuntimeException("Failed to create collection: " + createResponse.getStatusCode());
+                }
+            } catch (Exception e) {
+                // If creation fails, try to get it again (might have been created by another process)
+                log.warn("Failed to create collection, trying to get it again: {}", e.getMessage());
+                
+                try {
+                    ResponseEntity<String> retryResponse = restTemplate.exchange(
+                            getUrl, HttpMethod.GET, getEntity, String.class);
+                    
+                    if (retryResponse.getStatusCode().is2xxSuccessful()) {
+                        JsonNode retryCollection = objectMapper.readTree(retryResponse.getBody());
+                        if (retryCollection.has("id")) {
+                            collectionId = retryCollection.get("id").asText();
+                            log.info("Found ChromaDB collection after retry: {} (ID: {})", 
+                                    collectionName, collectionId);
+                            return collectionId;
+                        }
+                    }
+                } catch (Exception e2) {
+                    log.error("Failed to get collection on retry", e2);
+                }
+                
+                throw new RuntimeException("Failed to create or find ChromaDB collection. " +
+                        "Please ensure ChromaDB is running and the collection name is correct. " +
+                        "Error: " + e.getMessage(), e);
             }
             
         } catch (Exception e) {
             log.error("Error ensuring ChromaDB collection", e);
+            throw new RuntimeException("Failed to ensure ChromaDB collection: " + e.getMessage(), e);
         }
     }
     
@@ -82,10 +158,10 @@ public class ChromaDbService {
      */
     public void addDocuments(List<String> texts, List<String> ids, Map<String, Object> metadata) {
         try {
-            ensureCollection();
+            String collId = ensureCollection();
             
-            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + 
-                        chromaDbConfig.getCollectionName() + "/add";
+            // Try /upsert endpoint first (newer ChromaDB versions, using v1 API)
+            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + collId + "/upsert";
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -107,9 +183,17 @@ public class ChromaDbService {
             }
             
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             
-            log.debug("Added {} documents to ChromaDB", texts.size());
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+                log.debug("Added {} documents to ChromaDB collection {} using upsert", texts.size(), collId);
+            } catch (Exception e) {
+                // If upsert fails, try /add endpoint (older ChromaDB versions, using v1 API)
+                log.debug("Upsert failed, trying /add endpoint: {}", e.getMessage());
+                String addUrl = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + collId + "/add";
+                ResponseEntity<String> response = restTemplate.exchange(addUrl, HttpMethod.POST, entity, String.class);
+                log.debug("Added {} documents to ChromaDB collection {} using add", texts.size(), collId);
+            }
             
         } catch (Exception e) {
             log.error("Error adding documents to ChromaDB", e);
@@ -122,10 +206,10 @@ public class ChromaDbService {
      */
     public List<Map<String, Object>> searchSimilar(String queryText, int nResults) {
         try {
-            ensureCollection();
+            String collId = ensureCollection();
             
-            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + 
-                        chromaDbConfig.getCollectionName() + "/query";
+            // Use collection ID instead of name (using v1 API)
+            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + collId + "/query";
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
