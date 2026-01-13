@@ -264,5 +264,53 @@ public class ChromaDbService {
     public List<Map<String, Object>> searchSimilar(String queryText) {
         return searchSimilar(queryText, topK);
     }
+    
+    /**
+     * Add documents to ChromaDB with individual metadata for each document
+     * @param texts List of text documents
+     * @param ids List of document IDs (must match texts size)
+     * @param metadatas List of metadata objects (one per document, must match texts size)
+     */
+    public void addDocumentsWithIndividualMetadata(List<String> texts, List<String> ids, List<Map<String, Object>> metadatas) {
+        try {
+            if (texts.size() != ids.size() || texts.size() != metadatas.size()) {
+                throw new IllegalArgumentException("Texts, IDs, and metadatas lists must have the same size");
+            }
+            
+            String collId = ensureCollection();
+            
+            // Try /upsert endpoint first (newer ChromaDB versions, using v1 API)
+            String url = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + collId + "/upsert";
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            
+            // Generate embeddings
+            List<List<Float>> embeddings = embeddingService.generateEmbeddings(texts);
+            
+            Map<String, Object> request = new HashMap<>();
+            request.put("ids", ids);
+            request.put("embeddings", embeddings);
+            request.put("documents", texts);
+            request.put("metadatas", metadatas); // Each document has its own metadata
+            
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
+            
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+                log.debug("Added {} documents to ChromaDB collection {} with individual metadata using upsert", texts.size(), collId);
+            } catch (Exception e) {
+                // If upsert fails, try /add endpoint (older ChromaDB versions, using v1 API)
+                log.debug("Upsert failed, trying /add endpoint: {}", e.getMessage());
+                String addUrl = chromaDbConfig.getBaseUrl() + "/api/v1/collections/" + collId + "/add";
+                ResponseEntity<String> response = restTemplate.exchange(addUrl, HttpMethod.POST, entity, String.class);
+                log.debug("Added {} documents to ChromaDB collection {} with individual metadata using add", texts.size(), collId);
+            }
+            
+        } catch (Exception e) {
+            log.error("Error adding documents to ChromaDB with individual metadata", e);
+            throw new RuntimeException("Failed to add documents to ChromaDB: " + e.getMessage(), e);
+        }
+    }
 }
 

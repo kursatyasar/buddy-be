@@ -161,6 +161,31 @@ public class RagController {
     }
     
     /**
+     * Train with documents (each document has its own text and metadata)
+     * Request body format: [{"text": "...", "metadata": {...}}, ...]
+     * Each document will be split into chunks, and each chunk will inherit the document's metadata
+     */
+    @PostMapping("/train/documents")
+    public ResponseEntity<Map<String, Object>> trainWithDocuments(@RequestBody List<Map<String, Object>> documents) {
+        try {
+            if (documents == null || documents.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Documents cannot be empty");
+                return ResponseEntity.badRequest().body(error);
+            }
+            
+            Map<String, Object> result = textTrainingService.trainWithDocuments(documents);
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            log.error("Error training with documents", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Failed to train with documents: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(error);
+        }
+    }
+    
+    /**
      * Search for similar documents
      */
     @GetMapping("/search")
