@@ -194,7 +194,6 @@ public class AiService {
             requestBody.put("presence_penalty", presencePenalty);
             requestBody.put("seed", seed);
             
-            // Add metadata (equivalent to extra_body in Python)
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("username", username);
             metadata.put("pwd", password);

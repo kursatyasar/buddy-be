@@ -175,3 +175,4 @@ Collection'ı silip yeniden oluşturun veya `embedding-dimension` ayarını kont
 4. **Monitoring**: ChromaDB performansını izleyin
 5. **Scaling**: Gerekirse ChromaDB'yi cluster modunda çalıştırın
 
+
