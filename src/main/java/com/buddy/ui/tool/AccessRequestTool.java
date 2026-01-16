@@ -20,9 +20,9 @@ public class AccessRequestTool {
      * @param reason The reason for requesting access
      * @return A confirmation message
      */
-    @Tool("Portal erişim talebi oluşturur. Bu fonksiyonu çağırmadan önce kullanıcıdan portal adı ve neden bilgilerini toplamalı ve kullanıcının onayını almalısın. Kullanıcı 'evet' veya 'onaylıyorum' demeden bu fonksiyonu çağırma.")
+    @Tool("Portal erişim talebi oluşturur. Bu fonksiyonu çağırmadan önce kullanıcıdan portal adı ve neden bilgilerini toplamalısın. Bilgiler toplandıktan sonra direkt bu fonksiyonu çağır.")
     public String createAccessRequest(String portalName, String reason) {
-        log.info("Creating access request - Portal: {}, Reason: {}", portalName, reason);
+        log.info("🎯 TOOL CALLED: createAccessRequest - Portal: {}, Reason: {}", portalName, reason);
         
         // TODO: Implement actual access request creation logic
         // This could call an external API, save to database, etc.
@@ -35,7 +35,7 @@ public class AccessRequestTool {
             portalName, reason
         );
         
-        log.info("Access request created successfully");
+        log.info("✅ Access request created successfully");
         return message;
     }
 }

@@ -61,23 +61,23 @@ public interface BuddyAssistant {
         
         CRITICAL RULES FOR USING createAccessRequest:
         
-        1. INFORMATION COLLECTION: Before calling the function, you MUST collect BOTH pieces of information from the user:
-           - Portal name (portalName): Ask "Hangi portal için erişim talebi oluşturmak istiyorsunuz?"
-           - Reason for access request (reason): Ask "Erişim talebinizin nedeni nedir?"
+        1. INFORMATION COLLECTION: Collect BOTH pieces of information from the user:
+           - Portal name (portalName): Ask "Hangi portal için erişim talebi oluşturmak istiyorsunuz?" if not provided
+           - Reason for access request (reason): Ask "Erişim talebinizin nedeni nedir?" if not provided
         
-        2. CONFIRMATION REQUIRED: After collecting both pieces of information, you MUST ask the user for confirmation:
-           - Say: "[Portal Name] portalı için talep oluşturuyorum, onaylıyor musunuz?"
-           - Wait for user to explicitly say "evet", "onaylıyorum", "tamam", "onayla", "kabul ediyorum", or similar confirmation
-           - DO NOT call the function until user explicitly confirms with one of these words
+        2. FUNCTION CALL: Once you have BOTH portalName and reason, IMMEDIATELY call the createAccessRequest function.
+           - DO NOT wait for explicit confirmation
+           - DO NOT ask "onaylıyor musunuz?" - just call the function directly
+           - The function will handle the confirmation message to the user
         
-        3. IF INFORMATION MISSING: If portal name or reason is missing, ask the user:
-           - "Hangi portal için erişim talebi oluşturmak istiyorsunuz?"
-           - "Erişim talebinizin nedeni nedir?"
-           - DO NOT call the function if either information is missing
+        3. IF INFORMATION MISSING: If portal name or reason is missing, ask the user for the missing information:
+           - "Hangi portal için erişim talebi oluşturmak istiyorsunuz?" (if portalName missing)
+           - "Erişim talebinizin nedeni nedir?" (if reason missing)
+           - DO NOT call the function until you have BOTH pieces of information
         
-        4. IF USER DENIES: If user says "hayır", "iptal", "vazgeç", "istemiyorum", etc., do NOT call the function and acknowledge their decision politely.
+        4. IF USER DENIES: If user explicitly says "hayır", "iptal", "vazgeç", "istemiyorum", etc., do NOT call the function and acknowledge their decision politely.
         
-        5. NEVER CALL FUNCTION WITHOUT CONFIRMATION: Even if you have both portal name and reason, you MUST wait for explicit user confirmation before calling createAccessRequest.
+        5. IMPORTANT: The createAccessRequest function is available and ready to use. Once you have both parameters, call it immediately without asking for confirmation.
         
         ### DECISION LOGIC: RAG vs AGENT (STRICT RULES)
         

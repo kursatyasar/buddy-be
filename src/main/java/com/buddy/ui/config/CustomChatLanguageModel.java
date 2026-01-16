@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.output.Response;
+import dev.langchain4j.model.output.TokenUsage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Custom ChatLanguageModel that wraps the existing OpenAI-compatible LLM API
@@ -172,6 +174,14 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
                     tool.put("function", function);
                     tools.add(tool);
                 }
+                
+                // Debug: Log tool names being sent
+                List<String> toolNames = toolSpecifications.stream()
+                    .map(ToolSpecification::name)
+                    .collect(java.util.stream.Collectors.toList());
+                log.info("🔧 Sending {} tool(s) to LLM: {}", tools.size(), toolNames);
+            } else {
+                log.debug("⚠️ No tools provided to LLM");
             }
             
             // Build API request
@@ -206,7 +216,7 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
             
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
             
-            log.debug("Calling LLM API with {} tools: {}", tools != null ? tools.size() : 0, url);
+            log.debug("📤 Calling LLM API with {} tools: {}", tools != null ? tools.size() : 0, url);
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
             
             // Parse response
@@ -222,6 +232,7 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
                     JsonNode toolCalls = message.get("tool_calls");
                     if (toolCalls != null && toolCalls.isArray() && toolCalls.size() > 0) {
                         // Handle tool calls
+                        log.info("✅ LLM returned {} tool call(s)", toolCalls.size());
                         List<ToolExecutionRequest> toolExecutionRequests = new ArrayList<>();
                         
                         for (JsonNode toolCall : toolCalls) {
@@ -229,6 +240,8 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
                             JsonNode function = toolCall.get("function");
                             String name = function.get("name").asText();
                             String arguments = function.get("arguments").asText();
+                            
+                            log.info("🔨 Tool call: {} with arguments: {}", name, arguments);
                             
                             toolExecutionRequests.add(
                                 ToolExecutionRequest.builder()
@@ -244,14 +257,41 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
                         // doesn't support both text and tool requests together
                         // So we'll use toolExecutionRequests only
                         AiMessage aiMessage = new AiMessage(toolExecutionRequests);
-                        return new Response<>(aiMessage);
+                        
+                        // Extract token usage from response if available
+                        TokenUsage tokenUsage = extractTokenUsage(jsonResponse);
+                        
+                        return Response.from(aiMessage, tokenUsage);
                     } else {
-                        // Regular text response
+                        // Regular text response - but check for tool call in content
+                        log.debug("📝 LLM returned text response (checking for tool call in content)");
                         JsonNode content = message.get("content");
                         if (content != null && !content.isNull()) {
                             String responseText = content.asText();
+                            log.debug("Response text length: {} characters", responseText.length());
+                            
+                            // FALLBACK: Check if content contains tool call JSON
+                            // Some LLMs return tool calls as JSON string in content instead of tool_calls array
+                            ToolExecutionRequest parsedToolCall = tryParseToolCallFromContent(responseText, toolSpecifications);
+                            
+                            if (parsedToolCall != null) {
+                                log.info("✅ FALLBACK: Successfully parsed tool call from content: {}", 
+                                    parsedToolCall.name());
+                                AiMessage aiMessage = new AiMessage(List.of(parsedToolCall));
+                                
+                                // Extract token usage from response if available
+                                TokenUsage tokenUsage = extractTokenUsage(jsonResponse);
+                                
+                                return Response.from(aiMessage, tokenUsage);
+                            }
+                            
+                            // Normal text response
                             AiMessage aiMessage = new AiMessage(responseText);
-                            return new Response<>(aiMessage);
+                            
+                            // Extract token usage from response if available
+                            TokenUsage tokenUsage = extractTokenUsage(jsonResponse);
+                            
+                            return Response.from(aiMessage, tokenUsage);
                         }
                     }
                 }
@@ -263,6 +303,164 @@ public class CustomChatLanguageModel implements ChatLanguageModel {
             log.error("Error calling custom LLM API", e);
             throw new RuntimeException("Failed to generate AI response: " + e.getMessage(), e);
         }
+    }
+    
+    /**
+     * Fallback method to parse tool call from content if LLM returns it as JSON string
+     * Handles cases where LLM doesn't support tool_calls array and returns tool call in content
+     * Supports multiple formats:
+     * 1. {"name": "createAccessRequest", "arguments": {...}}
+     * 2. {"content": {"name": "...", "arguments": {...}}}
+     * 3. {"portalName": "...", "reason": "..."} - Direct arguments for createAccessRequest
+     */
+    private ToolExecutionRequest tryParseToolCallFromContent(String content, List<ToolSpecification> toolSpecifications) {
+        if (content == null || content.trim().isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Try to parse as JSON object
+            JsonNode contentJson = objectMapper.readTree(content.trim());
+            
+            // Format 1: Check if it's a tool call format: {"name": "...", "arguments": {...}}
+            if (contentJson.has("name") && contentJson.has("arguments")) {
+                String toolName = contentJson.get("name").asText();
+                JsonNode argumentsNode = contentJson.get("arguments");
+                
+                log.info("🔧 FALLBACK: Found tool call in content - {} with arguments: {}", 
+                    toolName, argumentsNode.toString());
+                
+                // Convert to ToolExecutionRequest
+                String argumentsJson = argumentsNode.toString();
+                String toolCallId = "call_" + System.currentTimeMillis(); // Generate ID
+                
+                return ToolExecutionRequest.builder()
+                    .id(toolCallId)
+                    .name(toolName)
+                    .arguments(argumentsJson)
+                    .build();
+            }
+            
+            // Format 2: Check for nested format: {"content": {"name": "...", "arguments": {...}}}
+            if (contentJson.has("content")) {
+                JsonNode innerContent = contentJson.get("content");
+                if (innerContent.isTextual()) {
+                    // Recursive call for nested content
+                    return tryParseToolCallFromContent(innerContent.asText(), toolSpecifications);
+                } else if (innerContent.has("name") && innerContent.has("arguments")) {
+                    String toolName = innerContent.get("name").asText();
+                    JsonNode argumentsNode = innerContent.get("arguments");
+                    
+                    log.info("🔧 FALLBACK: Found nested tool call in content - {} with arguments: {}", 
+                        toolName, argumentsNode.toString());
+                    
+                    String argumentsJson = argumentsNode.toString();
+                    String toolCallId = "call_" + System.currentTimeMillis();
+                    
+                    return ToolExecutionRequest.builder()
+                        .id(toolCallId)
+                        .name(toolName)
+                        .arguments(argumentsJson)
+                        .build();
+                }
+            }
+            
+            // Format 3: Check if it's direct arguments format (e.g., {"portalName": "...", "reason": "..."})
+            // This happens when LLM returns only the arguments without name field
+            // We need to match it to available tools based on parameter names
+            if (toolSpecifications != null && !toolSpecifications.isEmpty()) {
+                for (ToolSpecification spec : toolSpecifications) {
+                    // Check if content matches this tool's parameters
+                    if (matchesToolParameters(contentJson, spec)) {
+                        String toolName = spec.name();
+                        String argumentsJson = contentJson.toString();
+                        
+                        log.info("🔧 FALLBACK: Found direct arguments for tool {} - arguments: {}", 
+                            toolName, argumentsJson);
+                        
+                        String toolCallId = "call_" + System.currentTimeMillis();
+                        
+                        return ToolExecutionRequest.builder()
+                            .id(toolCallId)
+                            .name(toolName)
+                            .arguments(argumentsJson)
+                            .build();
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            // Not a JSON or not a tool call format
+            log.debug("Content is not a tool call JSON: {}", e.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Extract token usage from API response if available
+     * Returns empty TokenUsage if not available to prevent NullPointerException
+     */
+    private TokenUsage extractTokenUsage(JsonNode jsonResponse) {
+        try {
+            JsonNode usage = jsonResponse.get("usage");
+            if (usage != null) {
+                int promptTokens = usage.has("prompt_tokens") ? usage.get("prompt_tokens").asInt() : 0;
+                int completionTokens = usage.has("completion_tokens") ? usage.get("completion_tokens").asInt() : 0;
+                int totalTokens = usage.has("total_tokens") ? usage.get("total_tokens").asInt() : (promptTokens + completionTokens);
+                
+                return new TokenUsage(promptTokens, completionTokens, totalTokens);
+            }
+        } catch (Exception e) {
+            log.debug("Could not extract token usage from response: {}", e.getMessage());
+        }
+        
+        // Return empty TokenUsage to prevent NullPointerException
+        return new TokenUsage(0, 0, 0);
+    }
+    
+    /**
+     * Check if JSON content matches a tool's parameters
+     * For createAccessRequest, checks if content has "portalName" and "reason" fields
+     */
+    private boolean matchesToolParameters(JsonNode contentJson, ToolSpecification spec) {
+        if (contentJson == null || !contentJson.isObject()) {
+            return false;
+        }
+        
+        // Get tool parameters
+        ToolParameters toolParams = spec.parameters();
+        if (toolParams == null) {
+            return false;
+        }
+        
+        Map<String, Map<String, Object>> properties = toolParams.properties();
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        
+        // Check if all required parameters are present in content
+        List<String> required = toolParams.required();
+        if (required != null && !required.isEmpty()) {
+            for (String paramName : required) {
+                if (!contentJson.has(paramName)) {
+                    return false;
+                }
+            }
+        }
+        
+        // Check if content has at least some of the tool's parameters
+        // This helps match createAccessRequest when content has portalName and reason
+        int matchingParams = 0;
+        for (String paramName : properties.keySet()) {
+            if (contentJson.has(paramName)) {
+                matchingParams++;
+            }
+        }
+        
+        // If most parameters match, consider it a match
+        // For createAccessRequest with 2 params, both should match
+        return matchingParams >= properties.size() * 0.8; // At least 80% of parameters match
     }
     
 }
