@@ -3,6 +3,7 @@ package com.buddy.ui.config;
 import com.buddy.ui.service.ChromaDbService;
 import com.buddy.ui.service.EmbeddingService;
 import com.buddy.ui.tool.AccessRequestTool;
+import com.buddy.ui.tool.MentorMatchingTool;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -29,6 +30,7 @@ public class LangChain4jConfig {
     private final ChromaDbService chromaDbService;
     private final EmbeddingService embeddingService;
     private final AccessRequestTool accessRequestTool;
+    private final MentorMatchingTool mentorMatchingTool;
     
     @Value("${spring.ai.custom-llm.base-url}")
     private String baseUrl;

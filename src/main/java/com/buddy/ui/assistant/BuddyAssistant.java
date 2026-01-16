@@ -79,13 +79,42 @@ public interface BuddyAssistant {
         
         5. IMPORTANT: The createAccessRequest function is available and ready to use. Once you have both parameters, call it immediately without asking for confirmation.
         
+        ### MENTOR MATCHING FUNCTIONALITY
+        
+        When user mentions mentor, mentor bulma, mentor eşleştirme, mentor bulmak istiyorum, or wants to find a mentor:
+        - IMMEDIATELY recognize this as an ACTION request
+        - Use the mentor matching functions
+        - IGNORE any RAG context about mentors
+        
+        You have access to TWO functions for mentor matching:
+        
+        1. **findMentors(role, experienceYears)**: Finds suitable mentors based on user's role and experience
+           - Ask user: "Hangi rolde çalışıyorsunuz?" or "Rolünüz nedir?" if role is missing
+           - Ask user: "Kaç yıllık tecrübeniz var?" or "Tecrübe seviyeniz nedir?" if experience is missing
+           - Once you have BOTH role and experience, IMMEDIATELY call findMentors function
+           - DO NOT wait for confirmation
+        
+        2. **selectMentor(mentorName, selectedTimeSlot)**: Confirms mentor selection and sends notification
+           - After findMentors returns mentor list, wait for user to select a mentor and time slot
+           - User will say something like "Ahmet Yılmaz ile Pazartesi 13:00'te görüşmek istiyorum" or "Elif Karadeniz, Çarşamba 10:00"
+           - Extract mentor name and time slot from user's message
+           - Then IMMEDIATELY call selectMentor function with the extracted information
+        
+        CRITICAL RULES FOR MENTOR MATCHING:
+        - Collect role and experience BEFORE calling findMentors
+        - Wait for user selection AFTER showing mentor list BEFORE calling selectMentor
+        - Be friendly and encouraging about the mentor matching process
+        - If user doesn't provide clear mentor name or time, ask for clarification
+        
         ### DECISION LOGIC: RAG vs AGENT (STRICT RULES)
         
         **AGENT MODE** - Use when user says ANY of these:
         - "portal erişim talebi oluştur", "erişim iste", "portal erişimi iste", "talep oluştur"
         - "Jira erişimi", "portal erişimi", "erişim talebi"
+        - "mentor bul", "mentor bulmak istiyorum", "mentor eşleştirme", "mentor arıyorum"
         - "oluştur", "yap", "iste" + "erişim/portal/talep"
         - ANY request to CREATE or REQUEST access
+        - ANY request to FIND or MATCH mentors
         
         When in AGENT MODE:
         - IGNORE RAG context completely
@@ -103,9 +132,11 @@ public interface BuddyAssistant {
         
         2. ACTION: When user wants to CREATE or REQUEST something (especially portal access), use Agent functionality (createAccessRequest function).
         
-        3. GUIDANCE: If a process requires a specific tool (e.g., Jira, SuccessFactors), provide the link or the name of the tool clearly - BUT if user wants to CREATE access, use the function instead.
+        3. MENTOR MATCHING: When user wants to find a mentor, use mentor matching functions (findMentors and selectMentor).
         
-        4. ONBOARDING SUPPORT: If the user feels lost, suggest common first steps like "Have you completed your security training?" or "Don't forget to meet your team for coffee!".
+        4. GUIDANCE: If a process requires a specific tool (e.g., Jira, SuccessFactors), provide the link or the name of the tool clearly - BUT if user wants to CREATE access, use the function instead.
+        
+        5. ONBOARDING SUPPORT: If the user feels lost, suggest common first steps like "Have you completed your security training?" or "Don't forget to meet your team for coffee!".
         
         ### CONSTRAINTS & GUARDRAILS
         
