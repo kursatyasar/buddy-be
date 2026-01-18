@@ -1,5 +1,6 @@
 package com.buddy.ui.service;
 
+import com.buddy.ui.assistant.BuddyAssistant;
 import com.buddy.ui.model.Message;
 import com.buddy.ui.model.SenderType;
 import com.buddy.ui.model.dto.ChatRequest;
@@ -24,7 +25,7 @@ import java.util.stream.Collectors;
 public class ChatService {
     
     private final MessageRepository messageRepository;
-    private final AiService aiService;
+    private final BuddyAssistant buddyAssistant;
     
     @Transactional
     public Message processMessage(ChatRequest request) {
@@ -41,14 +42,23 @@ public class ChatService {
         userMessage = messageRepository.save(userMessage);
         log.debug("User message saved with ID: {}", userMessage.getId());
         
-        // Step 2: Generate AI response
-        Message aiMessage = aiService.generateResponse(request.getSessionId(), request.getContent());
+        // Step 2: Generate AI response using BuddyAssistant (LangChain4j)
+        String aiResponseText = buddyAssistant.chat(request.getContent());
+        log.debug("AI response generated: {}", aiResponseText);
         
-        // Step 3: Save AI response
+        // Step 3: Create AI message from response
+        Message aiMessage = Message.builder()
+                .sessionId(request.getSessionId())
+                .senderType(SenderType.AI)
+                .content(aiResponseText)
+                .userId(request.getUserId())
+                .build();
+        
+        // Step 4: Save AI response
         aiMessage = messageRepository.save(aiMessage);
         log.debug("AI message saved with ID: {}", aiMessage.getId());
         
-        // Step 4: Return AI message (as per requirements)
+        // Step 5: Return AI message
         return aiMessage;
     }
     
